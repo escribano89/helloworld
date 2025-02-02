@@ -23,5 +23,6 @@ class TestUtil(unittest.TestCase):
         self.assertRaises(TypeError, util.convert_to_number, None)
         self.assertRaises(TypeError, util.convert_to_number, object())
 
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
