@@ -1,0 +1,94 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Cleanup') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('GetCode') {
+            steps {
+                git branch: 'develop', url: 'https://github.com/escribano89/helloworld'
+                stash name: 'source_code', includes: '**/*'
+            }
+        }
+
+        stage('Echo') {
+            steps {
+                unstash 'source_code'
+                echo "Current workspace: ${env.WORKSPACE}"
+                bat 'dir "%WORKSPACE%"'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                unstash 'source_code'
+                echo "NO OPS Build stage executed"
+                bat "dir"
+            }
+        }
+
+        stage('Tests') {
+            parallel {
+                stage('Unit tests') {
+                    agent {
+                        label 'agent1'
+                    }
+                    steps {
+                        unstash 'source_code'
+                        bat 'whoami'
+                        echo "Workspace: ${env.WORKSPACE}"
+                        bat 'hostname'
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            bat '''
+                                where python
+                                set PYTHONPATH=%WORKSPACE%
+                                python -m pytest --junitxml=result-unit.xml test\\unit
+                            '''
+                        }
+                        stash name: 'unit_test_results', includes: 'result-unit.xml'
+                    }
+                }
+
+                stage('API tests') {
+                    agent {
+                        label 'agent2'
+                    }
+                    steps {
+                        unstash 'source_code'
+                        bat 'whoami'
+                        echo "Workspace: ${env.WORKSPACE}"
+                        bat 'hostname'
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            bat '''
+                                set FLASK_APP=app\\api.py
+                                set PYTHONPATH=%WORKSPACE%
+                                start python -m flask run
+                                start java -jar "%WORKSPACE%\\test\\wiremock\\wiremock-standalone-3.10.0.jar" --port 9090 --root-dir "%WORKSPACE%\\test\\wiremock"
+                                python -m pytest --junitxml=result-rest.xml test\\rest
+                            '''
+                        }
+                        stash name: 'api_test_results', includes: 'result-rest.xml'
+                    }
+                }
+            }
+        }
+
+        stage('Results Tests') {
+            steps {
+                unstash 'unit_test_results'
+                unstash 'api_test_results'
+                junit "result*.xml"
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

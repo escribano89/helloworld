@@ -13,7 +13,7 @@ def convert_to_number(operand):
 def InvalidConvertToNumber(operand):  # pragma: no cover
     try:
         if "." in operand:
-            return (float(operand))
+            return float(operand)
 
         return int(operand)
 
