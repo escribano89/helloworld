@@ -1,31 +1,66 @@
 pipeline {
     agent any
 
+    environment {
+        FLASK_PORT = '5001'
+        WIREMOCK_PORT = '9090'
+    }
+
     stages {
         stage('GetCode') {
             steps {
-                git 'https://github.com/escribano89/helloworld'
+                git branch: 'feature_fix_racecond', url: 'https://github.com/escribano89/helloworld'
             }
         }
-        
-        stage("Echo") {
+
+        stage('Echo') {
             steps {
                 echo "Current workspace: ${env.WORKSPACE}"
                 bat 'dir "%WORKSPACE%"'
             }
-
         }
+
         stage('Build') {
             steps {
                 echo "NO OPS Build stage executed"
                 bat "dir"
             }
         }
-        stage("Tests"){
+
+        stage('Start Services') {
+            steps {
+                script {
+                    echo "Starting Flask..."
+                    bat '''
+                        set FLASK_APP=app\\api.py
+                        set PYTHONPATH=%WORKSPACE%
+                        start /B python -m flask run --port=%FLASK_PORT%
+                    '''
+                    
+                    echo "Starting WireMock..."
+                    bat '''
+                        start /B java -jar "%WORKSPACE%\\test\\wiremock\\wiremock-standalone-3.10.0.jar" --port %WIREMOCK_PORT% --root-dir "%WORKSPACE%\\test\\wiremock"
+                    '''
+                }
+
+                script {
+                    echo "Comprobando flask..."
+                    retry(3) {
+                        bat 'curl -s http://127.0.0.1:%FLASK_PORT% || exit 1'
+                    }
+                    echo "Comprobando wiremock..."
+                    retry(3) {
+                        bat 'curl -s http://127.0.0.1:%WIREMOCK_PORT% || exit 1'
+                    }
+                }
+            }
+        }
+
+        stage('Tests') {
             parallel {
                 stage('Unit tests') {
                     steps {
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                             bat '''
                                 where python
                                 set PYTHONPATH=%WORKSPACE%
@@ -36,20 +71,17 @@ pipeline {
                 }
                 stage('API tests') {
                     steps {
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                             bat '''
-                              set FLASK_APP=app\\api.py
-                              set PYTHONPATH=%WORKSPACE%
-                              start python -m flask run
-                              start java -jar "%WORKSPACE%\\test\\wiremock\\wiremock-standalone-3.10.0.jar" --port 9090 --root-dir "%WORKSPACE%\\test\\wiremock"
-                              python -m pytest --junitxml=result-rest.xml test\\rest
+                                set PYTHONPATH=%WORKSPACE%
+                                python -m pytest --junitxml=result-rest.xml test\\rest
                             '''
                         }
                     }
                 }
             }
         }
-    
+
         stage('Results Tests') {
             steps {
                 junit "result*.xml"
